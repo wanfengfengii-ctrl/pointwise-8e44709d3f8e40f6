@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "kind": "web",
+  "setup": [],
+  "start": [
+    "python3", "-B", "-c",
+    "import sys\nfrom desk.http import main\nif sys.argv[1] != '127.0.0.1':\n    raise SystemExit('The workbench listens on 127.0.0.1')\nmain(['--port', sys.argv[2]])",
+    "${POINTWISE_HOST}", "${POINTWISE_PORT}"
+  ],
+  "readiness_path": "/",
+  "verify": ["python3", "-B", "check_project.py"],
+  "demo": [
+    "python3", "-B", "-m", "unittest", "-v",
+    "tests.test_binding.BindingTests.test_print_to_bound_copy",
+    "tests.test_preprint_fixture.PreprintFixtureTests.test_independent_layouts"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "book": "yuqiao-01",
+  "title": "榆桥口述史·渡口与街巷",
+  "seats": {"left": "A", "right": "B"},
+  "quotes": [
+    {"key": "A", "text": "过河先听铃。", "pages": [2, 3]},
+    {"key": "B", "text": "收摊后才点灯。", "pages": [4, 5]},
+    {"key": "C", "text": "录于榆桥社区口述史馆。", "pages": [1]}
+  ]
+}
