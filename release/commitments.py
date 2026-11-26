@@ -41,9 +41,10 @@ def load_seat_promises(db, round_id):
     return tuple(promises)
 
 
-def covers_outstanding_choices(revision, promises):
+def covers_outstanding_choices(revision, promises, fixed_pins=()):
+    fixed_pins = tuple(fixed_pins)
     for combination in product(*(promise.choices() for promise in promises)):
-        pins = tuple(pin for pin in combination if pin is not None)
+        pins = fixed_pins + tuple(pin for pin in combination if pin is not None)
         result = preview(revision, pins)
         if result.layout is None:
             return CoverageDecision(False, pins, describe_conflict(result.conflict))

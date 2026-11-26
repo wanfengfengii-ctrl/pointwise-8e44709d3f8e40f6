@@ -62,11 +62,28 @@ CREATE TABLE IF NOT EXISTS print_returns (
     UNIQUE (sheet, short_no),
     FOREIGN KEY (sheet, short_no) REFERENCES sheet_options(sheet, short_no)
 );
+CREATE TABLE IF NOT EXISTS preprints (
+    id INTEGER PRIMARY KEY,
+    book TEXT NOT NULL,
+    round_id INTEGER NOT NULL UNIQUE,
+    revision INTEGER NOT NULL,
+    FOREIGN KEY (round_id, book) REFERENCES rounds(id, book),
+    FOREIGN KEY (revision, book) REFERENCES revisions(id, book)
+);
+CREATE TABLE IF NOT EXISTS preprint_pages (
+    preprint INTEGER NOT NULL REFERENCES preprints(id),
+    quote TEXT NOT NULL,
+    page TEXT NOT NULL,
+    body TEXT NOT NULL,
+    PRIMARY KEY (preprint, quote),
+    UNIQUE (preprint, page)
+);
 CREATE TABLE IF NOT EXISTS fixed_editions (
     id INTEGER PRIMARY KEY,
     book TEXT NOT NULL,
     round_id INTEGER NOT NULL UNIQUE,
     revision INTEGER NOT NULL,
+    preprint INTEGER REFERENCES preprints(id),
     FOREIGN KEY (round_id, book) REFERENCES rounds(id, book),
     FOREIGN KEY (revision, book) REFERENCES revisions(id, book)
 );
@@ -106,6 +123,14 @@ def create_schema(db):
     except BaseException:
         db.rollback()
         raise
+    _upgrade_fixed_editions(db)
+
+
+def _upgrade_fixed_editions(db):
+    """Add the preprint link to databases created before it existed."""
+    columns = {row['name'] for row in db.execute('PRAGMA table_info(fixed_editions)')}
+    if 'preprint' not in columns:
+        db.execute('ALTER TABLE fixed_editions ADD COLUMN preprint INTEGER')
 
 
 @contextmanager

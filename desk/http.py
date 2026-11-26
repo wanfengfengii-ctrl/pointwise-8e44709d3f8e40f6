@@ -10,7 +10,7 @@ from urllib.parse import urlencode, urlsplit
 
 from desk.briefs import SEAT_LABELS, SEATS
 from desk.forms import field_value, parse_fields, parse_return_form, positive_identifier
-from desk.forms import render_return_result, render_sheet_form
+from desk.forms import render_preprint_form, render_preprint_result, render_return_result, render_sheet_form
 from desk.issue import issue_sheet
 from desk.returns import accept_return
 from draft.editor import revise
@@ -25,6 +25,7 @@ from release.binding import bind
 from release.bootstrap import SAMPLE_BOOK, initialize_workspace
 from release.commitments import can_offer_option, load_seat_promises
 from release.editions import find_working_edition
+from release.preprints import PreprintRefused, load_preprint, preview_preprint, sign_preprint
 from release.storage import open_database, read_transaction, write_transaction
 
 
@@ -83,6 +84,12 @@ def _selected_result(actual):
 
 def _render_bound(view):
     report = '两席索引均与正文相符。' if view.verified else '实印索引与固定正文不符。'
+    source = ''
+    if view.preprint is not None:
+        source = (
+            f' · 先印底稿 <a href="/preprint?book={escape(view.book)}&amp;id={view.preprint}">'
+            f'#{view.preprint}</a>'
+        )
     indexes = ''.join(
         f'<li>{SEAT_LABELS[item.seat]}纸单 #{item.sheet}，选项 {item.number}：'
         f'<a href="#page-{item.page}">{escape(item.quote)} → 第 {item.page} 页</a></li>'
@@ -94,7 +101,7 @@ def _render_bound(view):
         for page in view.pages
     )
     return (
-        f'<h1>固定册 #{view.edition}</h1><p>正文修订 #{view.revision} · {report}</p>'
+        f'<h1>固定册 #{view.edition}</h1><p>正文修订 #{view.revision} · {report}{source}</p>'
         f'<section><h2>实印索引</h2><ul>{indexes}</ul></section>{pages}'
     )
 
@@ -122,6 +129,12 @@ def _render_workbench(working):
 <section><h2>整册试排</h2><form action="/preview" method="get">{hidden}{revision_field}
 <label>指定页码（选填，每行填写引文键、制表符、页号）<textarea name="pins" rows="3"></textarea></label>
 <button>计算完整布局</button></form></section>
+<section><h2>先印预览</h2><form action="/preprint" method="get">{hidden}
+<label>引文键（空白分隔，例如 <code>C D</code>）<input name="quotes" required></label>
+<button>预览先印页</button></form>
+<form action="/preprint" method="get">{hidden}
+<label>按底稿号查阅 <input name="id" type="number" min="1" required></label>
+<button>领取先印底稿</button></form></section>
 <section><h2>发布正文</h2><form action="/amend" method="post">{hidden}{revision_field}
 <button>核定并发布</button></form><h2>领取纸单</h2><ul>{seats}</ul></section>
 <section><h2>装订查阅</h2><form action="/bind" method="post">{hidden}<button>按实印成册</button></form>
@@ -193,6 +206,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
                 ('GET', '/'): self._home,
                 ('POST', '/revise'): self._revise,
                 ('GET', '/preview'): self._preview,
+                ('GET', '/preprint'): self._preprint,
+                ('POST', '/preprint'): self._sign_preprint,
                 ('GET', '/sheet'): self._sheet,
                 ('POST', '/return'): self._return,
                 ('POST', '/amend'): self._amend,
@@ -211,6 +226,8 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
             status, data, body = error.status, {'error': str(error)}, _notice('请求无法办理', str(error))
         except LookupError as error:
             status, data, body = 404, {'error': str(error)}, _notice('未找到', str(error))
+        except PreprintRefused as error:
+            status, data, body = error.status, {'reason': str(error)}, _notice('先印未能办理', str(error))
         except ValueError as error:
             status, data, body = 400, {'error': str(error)}, _notice('输入有误', str(error))
         self._respond(status, data, body)
@@ -246,6 +263,45 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if not lines:
             lines = '<li>空稿，无正文页。</li>'
         return 200, {'revision': number, 'pages': pages}, f'<section><h1>完整试排</h1><ol>{lines}</ol></section>'
+
+    def _preprint(self, db, fields):
+        if 'id' in fields:
+            record = load_preprint(db, positive_identifier(field_value(fields, 'id')))
+            book = field_value(fields, 'book', default=None) if 'book' in fields else None
+            if record is None or (book is not None and record.book != book):
+                raise LookupError('找不到这份先印底稿。')
+            data = {
+                'book': record.book, 'round': record.round_id, 'revision': record.revision,
+                'preprint': record.id,
+                'pages': [
+                    {'quote': page.quote, 'page': page.page, 'text': page.text}
+                    for page in record.pages
+                ],
+            }
+            return 200, data, render_preprint_result(record, repeated=True)
+        book = field_value(fields, 'book')
+        quotes = field_value(fields, 'quotes', default='')
+        selected = [key for key in quotes.split() if key]
+        data = preview_preprint(db, book, selected)
+        return 200, data, render_preprint_form(data, self.origin + '/preprint')
+    def _sign_preprint(self, db, fields):
+        if set(fields) != {'book', 'round', 'revision', 'pins'}:
+            raise _RequestProblem(400, '签领需要册、轮次、来源稿号和整组页码。')
+        book = field_value(fields, 'book')
+        round_id = positive_identifier(field_value(fields, 'round'))
+        revision_id = positive_identifier(field_value(fields, 'revision'))
+        record, repeated = sign_preprint(
+            db, book, round_id, revision_id, tuple(_pins(field_value(fields, 'pins'))),
+        )
+        data = {
+            'book': record.book, 'round': record.round_id, 'revision': record.revision,
+            'preprint': record.id,
+            'pages': [
+                {'quote': page.quote, 'page': page.page, 'text': page.text}
+                for page in record.pages
+            ],
+        }
+        return 200, data, render_preprint_result(record, repeated)
 
     def _sheet(self, db, fields):
         book = field_value(fields, 'book')
@@ -293,12 +349,18 @@ class WorkbenchHandler(BaseHTTPRequestHandler):
         if result.edition is None:
             return 409, {'reason': result.reason}, _notice('暂不可成册', result.reason)
         view = read_edition(db, result.edition.id)
-        return 200, dict(asdict(view), repeated=result.repeated), _render_bound(view)
+        data = dict(asdict(view), repeated=result.repeated)
+        if view.preprint is None:
+            data.pop('preprint')
+        return 200, data, _render_bound(view)
 
     def _read(self, db, fields):
         edition = positive_identifier(field_value(fields, 'id'))
         view = read_edition(db, edition)
-        return 200, asdict(view), _render_bound(view)
+        data = asdict(view)
+        if view.preprint is None:
+            data.pop('preprint')
+        return 200, data, _render_bound(view)
 
 
 def main(argv=None):

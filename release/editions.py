@@ -31,6 +31,7 @@ class FixedEdition:
     revision_id: int
     pages: tuple[_FixedPage, ...]
     returns: tuple[PrintReturn, ...]
+    preprint: int | None = None
 
 
 def register_booklet(db, book, title):
@@ -64,10 +65,10 @@ def publish_revision(db, working, revision_id):
     return find_working_edition(db, working.book)
 
 
-def save_fixed_edition(db, working, revision: Revision, layout: Layout, actuals):
+def save_fixed_edition(db, working, revision: Revision, layout: Layout, actuals, preprint_id=None):
     cursor = db.execute(
-        'INSERT INTO fixed_editions(book, round_id, revision) VALUES (?, ?, ?)',
-        (working.book, working.id, revision.number),
+        'INSERT INTO fixed_editions(book, round_id, revision, preprint) VALUES (?, ?, ?, ?)',
+        (working.book, working.id, revision.number, preprint_id),
     )
     edition_id = cursor.lastrowid
     contents = {quote.key: quote.text for quote, _ in revision.rows}
@@ -89,7 +90,7 @@ def save_fixed_edition(db, working, revision: Revision, layout: Layout, actuals)
 
 def find_fixed_edition_snapshot(db, edition_id):
     header = db.execute(
-        'SELECT id, book, round_id, revision FROM fixed_editions WHERE id = ?', (edition_id,)
+        'SELECT id, book, round_id, revision, preprint FROM fixed_editions WHERE id = ?', (edition_id,)
     ).fetchone()
     if header is None:
         return None
@@ -105,5 +106,5 @@ def find_fixed_edition_snapshot(db, edition_id):
     return FixedEdition(
         edition_id, header['book'], header['round_id'], header['revision'],
         tuple(_FixedPage(row['quote'], int(row['page']), row['body']) for row in pages),
-        tuple(returns),
+        tuple(returns), header['preprint'],
     )

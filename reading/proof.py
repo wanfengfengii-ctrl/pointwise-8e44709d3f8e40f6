@@ -15,6 +15,7 @@ class BoundView:
     pages: tuple[BoundPage, ...]
     citations: tuple[PrintedCitation, ...]
     verified: bool
+    preprint: int | None = None
 
 
 def verify_citations(pages, citations):
@@ -30,5 +31,5 @@ def read_edition(db, edition_id):
     citations = project_citations(snapshot)
     return BoundView(
         snapshot.id, snapshot.book, snapshot.revision_id, snapshot.round_id, pages, citations,
-        verify_citations(pages, citations),
+        verify_citations(pages, citations), snapshot.preprint,
     )

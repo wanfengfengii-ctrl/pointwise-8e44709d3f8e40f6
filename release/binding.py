@@ -7,6 +7,7 @@ from draft.revision_store import load_revision
 from layout.placements import PagePin
 from layout.proof import describe_conflict, preview
 from release.editions import FixedEdition, find_fixed_edition_snapshot, find_working_edition, save_fixed_edition
+from release.preprints import preprint_blocker, round_preprint
 
 
 @dataclass(frozen=True)
@@ -34,8 +35,17 @@ def bind(db, book):
         return BindingResult(None, '两席实印尚未报齐。')
     revision = load_revision(db, book, working.revision_id)
     pins = tuple(PagePin(actual.option.quote, actual.option.page) for actual in actuals)
+    signed = round_preprint(db, working.id)
+    if signed is not None:
+        blocker = preprint_blocker(revision, signed.pages)
+        if blocker is not None:
+            return BindingResult(None, blocker)
+        pins = tuple(PagePin(page.quote, page.page) for page in signed.pages) + pins
     proof = preview(revision, pins)
     if proof.layout is None:
         return BindingResult(None, describe_conflict(proof.conflict))
-    edition = save_fixed_edition(db, working, revision, proof.layout, actuals)
+    edition = save_fixed_edition(
+        db, working, revision, proof.layout, actuals,
+        preprint_id=None if signed is None else signed.id,
+    )
     return BindingResult(edition)

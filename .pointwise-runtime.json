@@ -12,6 +12,7 @@
   "demo": [
     "python3", "-B", "-m", "unittest", "-v",
     "tests.test_binding.BindingTests.test_print_to_bound_copy",
-    "tests.test_preprint_fixture.PreprintFixtureTests.test_independent_layouts"
+    "tests.test_preprint_fixture.PreprintFixtureTests.test_independent_layouts",
+    "tests.test_preprint.PreprintDemoTests.test_preprint_to_bound_copy"
   ]
 }
